@@ -5,6 +5,8 @@ import re
 import argparse
 import html
 import urllib.parse
+import sys
+import html
 from urllib.parse import urlparse
 
 
@@ -43,7 +45,7 @@ class HTTPClient:
             print(f"Connection error: {e}")
             return False
 
-    def send_request(self, host, path, method="GET", headers=None):
+    def send_request(self, host, path, method="GET", headers=None, body=None):
         """Send HTTP request"""
         if headers is None:
             headers = {}
@@ -52,6 +54,8 @@ class HTTPClient:
             "Host": host,
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Connection": "close"
         })
 
@@ -60,6 +64,8 @@ class HTTPClient:
             request_lines.append(f"{key}: {value}")
 
         request = "\r\n".join(request_lines) + "\r\n\r\n"
+        if body:
+            request += body
 
         try:
             self.socket.sendall(request.encode())
@@ -69,7 +75,7 @@ class HTTPClient:
             return False
 
     def receive_response(self):
-        """Receive HTTP response"""
+        """Receive and parse HTTP response"""
         response = b''
         try:
             while True:
@@ -94,20 +100,32 @@ class HTTPClient:
 
         if not self.connect(host, port, use_ssl=(protocol == 'https')):
             return None
-
         if not self.send_request(host, path, method, headers):
             self.close()
             return None
 
         response = self.receive_response()
         self.close()
+        if not response:
+            return None
 
+        # Handles redirects
+        if follow_redirects and max_redirects > 0:
+            status_match = re.search(r'HTTP/[\d.]+\s+(\d+)', response)
+            if status_match and status_match.group(1) in ('301', '302', '303', '307', '308'):
+                location_match = re.search(r'Location:\s*(.*?)[\r\n]', response, re.IGNORECASE)
+                if location_match:
+                    redirect_url = location_match.group(1).strip()
+                    if not redirect_url.startswith(('http://', 'https://')):
+                        redirect_url = f"{protocol}://{host}{redirect_url}"
+
+                    print(f"Redirecting to: {redirect_url}")
+                    return self.request(redirect_url, method, headers, body, follow_redirects, max_redirects - 1)
         return response
 
 
 def extract_html_content(response):
     """Extract HTML body from response and clean it"""
-    # Split headers and body
     parts = response.split('\r\n\r\n', 1)
     if len(parts) < 2:
         return "No content found in response."
@@ -123,7 +141,10 @@ def extract_html_content(response):
     # Decode HTML entities
     clean_text = html.unescape(clean_text)
 
-    # Replace multiple spaces and newlines
+    # Replace
+    # multiple spaces and newlines
+    # Remove HTML tags (simple implementation)
+    clean_text = re.sub(r'<.*?>', ' ', body)
     clean_text = re.sub(r'\s+', ' ', clean_text).strip()
 
     return clean_text
@@ -171,7 +192,6 @@ def extract_search_results(response, search_engine):
         return "\n\n".join(output)
 
     return "Unsupported search engine."
-
 
 def fetch_url(url):
     """Fetch content from specified URL"""
