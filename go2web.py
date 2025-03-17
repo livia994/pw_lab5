@@ -4,6 +4,7 @@ import ssl
 import re
 import argparse
 import sys
+import html
 from urllib.parse import urlparse
 
 
@@ -49,8 +50,8 @@ class HTTPClient:
 
         headers.update({
             "Host": host,
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
             "Connection": "close"
         })
 
@@ -89,8 +90,8 @@ class HTTPClient:
         if self.socket:
             self.socket.close()
 
-    def request(self, url, method="GET", headers=None, body=None):
-        """Make HTTP request"""
+    def request(self, url, method="GET", headers=None, body=None, follow_redirects=True, max_redirects=5):
+        """Make HTTP request and handle redirects"""
         protocol, host, path, port = self.parse_url(url)
 
         if not self.connect(host, port, use_ssl=(protocol == 'https')):
@@ -103,11 +104,27 @@ class HTTPClient:
         response = self.receive_response()
         self.close()
 
+        if not response:
+            return None
+
+        # Handles redirects
+        if follow_redirects and max_redirects > 0:
+            status_match = re.search(r'HTTP/[\d.]+\s+(\d+)', response)
+            if status_match and status_match.group(1) in ('301', '302', '303', '307', '308'):
+                location_match = re.search(r'Location:\s*(.*?)[\r\n]', response, re.IGNORECASE)
+                if location_match:
+                    redirect_url = location_match.group(1).strip()
+                    if not redirect_url.startswith(('http://', 'https://')):
+                        redirect_url = f"{protocol}://{host}{redirect_url}"
+
+                    print(f"Redirecting to: {redirect_url}")
+                    return self.request(redirect_url, method, headers, body, follow_redirects, max_redirects - 1)
+
         return response
 
 
 def extract_html_content(response):
-    """Extract HTML body from response and clean it (basic implementation)"""
+    """Extract HTML body from response and clean it"""
     # Split headers and body
     parts = response.split('\r\n\r\n', 1)
     if len(parts) < 2:
@@ -115,10 +132,17 @@ def extract_html_content(response):
 
     body = parts[1]
 
-    # Remove HTML tags (simple implementation)
-    clean_text = re.sub(r'<.*?>', ' ', body)
+    # Remove HTML tags
+    clean_text = re.sub(r'<head>.*?</head>', '', body, flags=re.DOTALL)
+    clean_text = re.sub(r'<script.*?>.*?</script>', '', clean_text, flags=re.DOTALL)
+    clean_text = re.sub(r'<style.*?>.*?</style>', '', clean_text, flags=re.DOTALL)
+    clean_text = re.sub(r'<.*?>', ' ', clean_text)
 
-    # Replace multiple spaces
+    # Decode HTML entities
+    clean_text = html.unescape(clean_text)
+
+    # Replace
+    # multiple spaces and newlines
     clean_text = re.sub(r'\s+', ' ', clean_text).strip()
 
     return clean_text
