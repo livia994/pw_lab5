@@ -9,7 +9,6 @@ import urllib.parse
 import os
 from urllib.parse import urlparse, parse_qs
 
-
 class HTTPClient:
     def __init__(self):
         self.socket = None
@@ -109,7 +108,8 @@ class HTTPClient:
         if not response:
             return None
 
-        # Handle redirects
+        # Handles redirects
+
         if follow_redirects and max_redirects > 0:
             status_match = re.search(r'HTTP/[\d.]+\s+(\d+)', response)
             if status_match and status_match.group(1) in ('301', '302', '303', '307', '308'):
@@ -121,7 +121,6 @@ class HTTPClient:
 
                     print(f"Redirecting to: {redirect_url}")
                     return self.request(redirect_url, method, headers, body, follow_redirects, max_redirects - 1)
-
         return response
 
 
@@ -234,6 +233,16 @@ def extract_search_results(response, search_engine):
 
     return "Unsupported search engine."
 
+def fetch_url(url):
+    """Fetch content from specified URL"""
+    client = HTTPClient()
+    response = client.request(url)
+
+    if not response:
+        return "Failed to fetch URL."
+
+    return extract_html_content(response)
+
 
 def search(term, engine="duckduckgo"):
     """Search using specified search engine"""
@@ -311,6 +320,7 @@ def main():
         result = search(args.search)
         print(result)
 
+
         # Save search results for later access
         with open(last_search_file, 'w', encoding='utf-8') as f:
             f.write(result)
@@ -323,6 +333,7 @@ def main():
             print(result)
         else:
             print("No previous search results found. Please run a search first using the -s option.")
+
     else:
         parser.print_help()
 
