@@ -1,5 +1,139 @@
 #!/usr/bin/env python
+import socket
+import ssl
+import re
 import argparse
+import sys
+from urllib.parse import urlparse
+
+
+class HTTPClient:
+    def __init__(self):
+        self.socket = None
+        self.ssl_context = ssl.create_default_context()
+
+    def parse_url(self, url):
+        """Parse URL into components"""
+        if not url.startswith(('http://', 'https://')):
+            url = 'https://' + url
+
+        parsed = urlparse(url)
+        protocol = 'https' if parsed.scheme == 'https' else 'http'
+        host = parsed.netloc
+        path = parsed.path if parsed.path else '/'
+        if parsed.query:
+            path += '?' + parsed.query
+
+        port = 443 if protocol == 'https' else 80
+
+        return protocol, host, path, port
+
+    def connect(self, host, port, use_ssl=True):
+        """Establish connection to host"""
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.socket.settimeout(10)
+
+        try:
+            self.socket.connect((host, port))
+            if use_ssl:
+                self.socket = self.ssl_context.wrap_socket(self.socket, server_hostname=host)
+            return True
+        except (socket.timeout, socket.error) as e:
+            print(f"Connection error: {e}")
+            return False
+
+    def send_request(self, host, path, method="GET", headers=None, body=None):
+        """Send HTTP request"""
+        if headers is None:
+            headers = {}
+
+        headers.update({
+            "Host": host,
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Connection": "close"
+        })
+
+        request_lines = [f"{method} {path} HTTP/1.1"]
+        for key, value in headers.items():
+            request_lines.append(f"{key}: {value}")
+
+        request = "\r\n".join(request_lines) + "\r\n\r\n"
+        if body:
+            request += body
+
+        try:
+            self.socket.sendall(request.encode())
+            return True
+        except Exception as e:
+            print(f"Request error: {e}")
+            return False
+
+    def receive_response(self):
+        """Receive and parse HTTP response"""
+        response = b''
+        try:
+            while True:
+                data = self.socket.recv(4096)
+                if not data:
+                    break
+                response += data
+
+            return response.decode('utf-8', errors='replace')
+        except Exception as e:
+            print(f"Response error: {e}")
+            return None
+
+    def close(self):
+        """Close the connection"""
+        if self.socket:
+            self.socket.close()
+
+    def request(self, url, method="GET", headers=None, body=None):
+        """Make HTTP request"""
+        protocol, host, path, port = self.parse_url(url)
+
+        if not self.connect(host, port, use_ssl=(protocol == 'https')):
+            return None
+
+        if not self.send_request(host, path, method, headers, body):
+            self.close()
+            return None
+
+        response = self.receive_response()
+        self.close()
+
+        return response
+
+
+def extract_html_content(response):
+    """Extract HTML body from response and clean it (basic implementation)"""
+    # Split headers and body
+    parts = response.split('\r\n\r\n', 1)
+    if len(parts) < 2:
+        return "No content found in response."
+
+    body = parts[1]
+
+    # Remove HTML tags (simple implementation)
+    clean_text = re.sub(r'<.*?>', ' ', body)
+
+    # Replace multiple spaces
+    clean_text = re.sub(r'\s+', ' ', clean_text).strip()
+
+    return clean_text
+
+
+def fetch_url(url):
+    """Fetch content from specified URL"""
+    client = HTTPClient()
+    response = client.request(url)
+
+    if not response:
+        return "Failed to fetch URL."
+
+    return extract_html_content(response)
+
 
 def create_parser():
     """Create command line argument parser"""
@@ -9,16 +143,19 @@ def create_parser():
     group.add_argument('-s', '--search', help='Search the term using DuckDuckGo and print top 10 results')
     return parser
 
+
 def main():
     parser = create_parser()
     args = parser.parse_args()
 
     if args.url:
-        print(f"URL feature not implemented yet. You requested: {args.url}")
+        result = fetch_url(args.url)
+        print(result)
     elif args.search:
         print(f"Search feature not implemented yet. You searched for: {args.search}")
     else:
         parser.print_help()
+
 
 if __name__ == "__main__":
     main()
