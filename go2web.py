@@ -52,6 +52,9 @@ class HTTPClient:
             "Host": host,
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+
             "Connection": "close"
         })
 
@@ -89,9 +92,10 @@ class HTTPClient:
         """Close the connection"""
         if self.socket:
             self.socket.close()
-
     def request(self, url, method="GET", headers=None, body=None, follow_redirects=True, max_redirects=5):
         """Make HTTP request and handle redirects"""
+    def request(self, url, method="GET", headers=None, body=None):
+        """Make HTTP request"""
         protocol, host, path, port = self.parse_url(url)
 
         if not self.connect(host, port, use_ssl=(protocol == 'https')):
@@ -125,13 +129,13 @@ class HTTPClient:
 
 def extract_html_content(response):
     """Extract HTML body from response and clean it"""
+    """Extract HTML body from response and clean it (basic implementation)"""
     # Split headers and body
     parts = response.split('\r\n\r\n', 1)
     if len(parts) < 2:
         return "No content found in response."
 
     body = parts[1]
-
     # Remove HTML tags
     clean_text = re.sub(r'<head>.*?</head>', '', body, flags=re.DOTALL)
     clean_text = re.sub(r'<script.*?>.*?</script>', '', clean_text, flags=re.DOTALL)
@@ -143,6 +147,10 @@ def extract_html_content(response):
 
     # Replace
     # multiple spaces and newlines
+    # Remove HTML tags (simple implementation)
+    clean_text = re.sub(r'<.*?>', ' ', body)
+
+    # Replace multiple spaces
     clean_text = re.sub(r'\s+', ' ', clean_text).strip()
 
     return clean_text
