@@ -9,7 +9,7 @@ Supports fetching web pages, searching DuckDuckGo or Google, handling redirects,
 ✅ Follow redirects automatically  
 ✅ Open a specific search result with `-o`  
 
-### ** Usage**  
+### **Usage**  
 ```bash
 python go2web.py -h               # Show help  
 python go2web.py -u <URL>         # Fetch and display a webpage  
@@ -56,3 +56,12 @@ https://youtu.be/n9i4uPSiwc4
 
 Demonstration of showing the -h help menu options, displaying top 10 results using -s, and opening one of them using -o
 https://youtu.be/6Z4S-Jx5zjY
+
+## **Screenshots** 
+**Function -u**
+![img.png](img.png)
+**Function -h & -s**
+![img_1.png](img_1.png)
+![img_2.png](img_2.png)
+**Function "-0"**
+![img_3.png](img_3.png)
