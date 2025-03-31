@@ -13,7 +13,6 @@ import time
 from urllib.parse import urlparse, parse_qs
 from datetime import datetime, timedelta
 
-
 class HTTPClient:
     def __init__(self):
         self.socket = None
@@ -202,7 +201,6 @@ class HTTPClient:
         """Close the connection"""
         if self.socket:
             self.socket.close()
-
     def request(self, url, method="GET", headers=None, body=None, follow_redirects=True, max_redirects=5,
                 use_cache=True):
         """Make HTTP request and handle redirects with caching and content negotiation"""
@@ -305,8 +303,8 @@ class HTTPClient:
                         redirect_url = f"{protocol}://{host}{redirect_url}"
 
                     print(f"Redirecting to: {redirect_url}")
-                    return self.request(redirect_url, method, headers, body, follow_redirects, max_redirects - 1,
-                                        use_cache)
+
+                    return self.request(redirect_url, method, headers, body, follow_redirects, max_redirects - 1, use_cache)
         return response
 
 
