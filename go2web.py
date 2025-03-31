@@ -7,10 +7,12 @@ import sys
 import html
 import urllib.parse
 import os
+import json
 import hashlib
 import time
 from urllib.parse import urlparse, parse_qs
 from datetime import datetime, timedelta
+
 
 class HTTPClient:
     def __init__(self):
@@ -22,7 +24,6 @@ class HTTPClient:
             os.makedirs(self.cache_dir)
 
     def parse_url(self, url):
-        """Parse URL into components"""
         if not url.startswith(('http://', 'https://')):
             url = 'https://' + url
 
@@ -162,7 +163,8 @@ class HTTPClient:
         headers.update({
             "Host": host,
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-            "Accept": headers.get("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"),
+            "Accept": headers.get("Accept",
+                                  "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"),
             "Connection": "close"
         })
 
@@ -201,8 +203,9 @@ class HTTPClient:
         if self.socket:
             self.socket.close()
 
-    def request(self, url, method="GET", headers=None, body=None, follow_redirects=True, max_redirects=5, use_cache=True):
-        """Make HTTP request and handle redirects with caching"""
+    def request(self, url, method="GET", headers=None, body=None, follow_redirects=True, max_redirects=5,
+                use_cache=True):
+        """Make HTTP request and handle redirects with caching and content negotiation"""
         if headers is None:
             headers = {}
 
@@ -302,7 +305,8 @@ class HTTPClient:
                         redirect_url = f"{protocol}://{host}{redirect_url}"
 
                     print(f"Redirecting to: {redirect_url}")
-                    return self.request(redirect_url, method, headers, body, follow_redirects, max_redirects - 1, use_cache)
+                    return self.request(redirect_url, method, headers, body, follow_redirects, max_redirects - 1,
+                                        use_cache)
         return response
 
 
@@ -321,20 +325,35 @@ def extract_html_content(response):
             return "No content found in response."
 
     body = parts[1]
+    headers = parts[0]
 
-    # Remove HTML tags
-    clean_text = re.sub(r'<head>.*?</head>', '', body, flags=re.DOTALL)
-    clean_text = re.sub(r'<script.*?>.*?</script>', '', clean_text, flags=re.DOTALL)
-    clean_text = re.sub(r'<style.*?>.*?</style>', '', clean_text, flags=re.DOTALL)
-    clean_text = re.sub(r'<.*?>', ' ', clean_text)
+    # Check content type
+    content_type_match = re.search(r'Content-Type:\s*(.*?)[\r\n]', headers, re.IGNORECASE)
+    content_type = content_type_match.group(1).lower() if content_type_match else ""
 
-    # Decode HTML entities
-    clean_text = html.unescape(clean_text)
+    if "application/json" in content_type:
+        try:
+            # Parse and pretty-print JSON
+            parsed_json = json.loads(body)
+            return json.dumps(parsed_json, indent=2)
+        except json.JSONDecodeError:
+            return "Invalid JSON content received."
+    elif "text/plain" in content_type:
+        return body  # Return plain text as is
+    else:
+        # Process as HTML
+        clean_text = re.sub(r'<head>.*?</head>', '', body, flags=re.DOTALL)
+        clean_text = re.sub(r'<script.*?>.*?</script>', '', clean_text, flags=re.DOTALL)
+        clean_text = re.sub(r'<style.*?>.*?</style>', '', clean_text, flags=re.DOTALL)
+        clean_text = re.sub(r'<.*?>', ' ', clean_text)
 
-    # Replace multiple spaces and newlines
-    clean_text = re.sub(r'\s+', ' ', clean_text).strip()
+        # Decode HTML entities
+        clean_text = html.unescape(clean_text)
 
-    return clean_text
+        # Replace multiple spaces and newlines
+        clean_text = re.sub(r'\s+', ' ', clean_text).strip()
+
+        return clean_text
 
 
 def extract_search_results(response, search_engine):
@@ -425,10 +444,20 @@ def extract_search_results(response, search_engine):
     return "Unsupported search engine."
 
 
-def fetch_url(url):
-    """Fetch content from specified URL"""
+def fetch_url(url, content_type=None):
+    """Fetch content from specified URL with content negotiation"""
     client = HTTPClient()
-    response = client.request(url)
+
+    headers = {}
+    if content_type:
+        if content_type.lower() == "json":
+            headers["Accept"] = "application/json"
+        elif content_type.lower() == "html":
+            headers["Accept"] = "text/html"
+        else:
+            print(f"Warning: Unrecognized content type '{content_type}'. Using default.")
+
+    response = client.request(url, headers=headers)
 
     if not response:
         return "Failed to fetch URL."
@@ -484,6 +513,7 @@ def create_parser():
     group.add_argument('-u', '--url', help='Make an HTTP request to the specified URL')
     group.add_argument('-s', '--search', help='Search the term using DuckDuckGo and print top 10 results')
     group.add_argument('-o', '--open', type=int, help='Open the specified search result')
+    parser.add_argument('-t', '--type', choices=['html', 'json'], help='Specify content type for content negotiation')
     parser.add_argument('--no-cache', action='store_true', help='Disable HTTP caching for this request')
     parser.add_argument('--clear-cache', action='store_true', help='Clear all cached responses')
     return parser
@@ -509,7 +539,7 @@ def main():
 
     if args.url:
         use_cache = not args.no_cache
-        result = fetch_url(args.url)
+        result = fetch_url(args.url, args.type)
         print(result)
     elif args.search:
         result = search(args.search)
