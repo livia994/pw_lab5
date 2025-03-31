@@ -303,6 +303,7 @@ class HTTPClient:
                         redirect_url = f"{protocol}://{host}{redirect_url}"
 
                     print(f"Redirecting to: {redirect_url}")
+
                     return self.request(redirect_url, method, headers, body, follow_redirects, max_redirects - 1, use_cache)
 
         return response
@@ -442,8 +443,8 @@ def extract_search_results(response, search_engine):
     return "Unsupported search engine."
 
 
+def fetch_url(url, content_type=None, use_cache=True):
 
-def fetch_url(url, content_type=None):
     """Fetch content from specified URL with content negotiation"""
     client = HTTPClient()
 
@@ -456,7 +457,7 @@ def fetch_url(url, content_type=None):
         else:
             print(f"Warning: Unrecognized content type '{content_type}'. Using default.")
 
-    response = client.request(url, headers=headers)
+    response = client.request(url, headers=headers, use_cache=use_cache)
 
     if not response:
         return "Failed to fetch URL."
@@ -513,7 +514,6 @@ def create_parser():
     group.add_argument('-s', '--search', help='Search the term using DuckDuckGo and print top 10 results')
     group.add_argument('-o', '--open', type=int, help='Open the specified search result')
     parser.add_argument('-t', '--type', choices=['html', 'json'], help='Specify content type for content negotiation')
-
     parser.add_argument('--no-cache', action='store_true', help='Disable HTTP caching for this request')
     parser.add_argument('--clear-cache', action='store_true', help='Clear all cached responses')
     return parser
@@ -539,7 +539,8 @@ def main():
 
     if args.url:
         use_cache = not args.no_cache
-        result = fetch_url(args.url, args.type)
+        result = fetch_url(args.url, args.type, use_cache=use_cache)  # Pass use_cache parameter
+
         print(result)
     elif args.search:
         result = search(args.search)
