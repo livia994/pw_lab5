@@ -13,7 +13,6 @@ import time
 from urllib.parse import urlparse, parse_qs
 from datetime import datetime, timedelta
 
-
 class HTTPClient:
     def __init__(self):
         self.socket = None
@@ -202,7 +201,6 @@ class HTTPClient:
         """Close the connection"""
         if self.socket:
             self.socket.close()
-
     def request(self, url, method="GET", headers=None, body=None, follow_redirects=True, max_redirects=5,
                 use_cache=True):
         """Make HTTP request and handle redirects with caching and content negotiation"""
@@ -305,8 +303,8 @@ class HTTPClient:
                         redirect_url = f"{protocol}://{host}{redirect_url}"
 
                     print(f"Redirecting to: {redirect_url}")
-                    return self.request(redirect_url, method, headers, body, follow_redirects, max_redirects - 1,
-                                        use_cache)
+                    return self.request(redirect_url, method, headers, body, follow_redirects, max_redirects - 1, use_cache)
+
         return response
 
 
@@ -444,6 +442,7 @@ def extract_search_results(response, search_engine):
     return "Unsupported search engine."
 
 
+
 def fetch_url(url, content_type=None):
     """Fetch content from specified URL with content negotiation"""
     client = HTTPClient()
@@ -514,6 +513,7 @@ def create_parser():
     group.add_argument('-s', '--search', help='Search the term using DuckDuckGo and print top 10 results')
     group.add_argument('-o', '--open', type=int, help='Open the specified search result')
     parser.add_argument('-t', '--type', choices=['html', 'json'], help='Specify content type for content negotiation')
+
     parser.add_argument('--no-cache', action='store_true', help='Disable HTTP caching for this request')
     parser.add_argument('--clear-cache', action='store_true', help='Clear all cached responses')
     return parser

@@ -56,3 +56,13 @@ https://youtu.be/n9i4uPSiwc4
 
 Demonstration of showing the -h help menu options, displaying top 10 results using -s, and opening one of them using -o
 https://youtu.be/6Z4S-Jx5zjY
+
+## **Screenshots**
+
+**Function -u**
+![Captură de ecran 2025-03-17 184254](https://github.com/user-attachments/assets/bc63e65d-e83f-41be-8a39-e5cf55e28a43)
+**Function -s & -h**
+![Captură de ecran 2025-03-17 184355](https://github.com/user-attachments/assets/1c5fa66b-dbf3-4f21-b619-163de46436f4)
+![Captură de ecran 2025-03-17 184437](https://github.com/user-attachments/assets/9fd5429b-64f7-4407-a0bb-4e3ead71dc78)
+**Function -o**
+![Captură de ecran 2025-03-17 184454](https://github.com/user-attachments/assets/6c3f3d2a-c92c-43f9-8311-1b36d955ee77)
