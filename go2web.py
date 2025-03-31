@@ -444,7 +444,7 @@ def extract_search_results(response, search_engine):
     return "Unsupported search engine."
 
 
-def fetch_url(url, content_type=None):
+def fetch_url(url, content_type=None, use_cache=True):
     """Fetch content from specified URL with content negotiation"""
     client = HTTPClient()
 
@@ -457,7 +457,7 @@ def fetch_url(url, content_type=None):
         else:
             print(f"Warning: Unrecognized content type '{content_type}'. Using default.")
 
-    response = client.request(url, headers=headers)
+    response = client.request(url, headers=headers, use_cache=use_cache)
 
     if not response:
         return "Failed to fetch URL."
@@ -539,7 +539,7 @@ def main():
 
     if args.url:
         use_cache = not args.no_cache
-        result = fetch_url(args.url, args.type)
+        result = fetch_url(args.url, args.type, use_cache=use_cache)  # Pass use_cache parameter
         print(result)
     elif args.search:
         result = search(args.search)
