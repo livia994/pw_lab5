@@ -7,12 +7,19 @@ import sys
 import html
 import urllib.parse
 import os
+import hashlib
+import time
 from urllib.parse import urlparse, parse_qs
+from datetime import datetime, timedelta
 
 class HTTPClient:
     def __init__(self):
         self.socket = None
         self.ssl_context = ssl.create_default_context()
+        self.cache_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.cache')
+        # Create cache directory if it doesn't exist
+        if not os.path.exists(self.cache_dir):
+            os.makedirs(self.cache_dir)
 
     def parse_url(self, url):
         """Parse URL into components"""
@@ -44,6 +51,109 @@ class HTTPClient:
             print(f"Connection error: {e}")
             return False
 
+    def get_cache_key(self, url, accept_header):
+        """Generate a cache key based on URL and content type"""
+        return hashlib.md5(f"{url}_{accept_header}".encode()).hexdigest()
+
+    def is_cached_response_valid(self, cache_file):
+        """Check if a cached response is still valid based on cache control headers"""
+        if not os.path.exists(cache_file):
+            return False
+
+        try:
+            with open(cache_file, 'r', encoding='utf-8', errors='replace') as f:
+                cached_response = f.read()
+
+            # Extract headers from cached response
+            headers_part = cached_response.split('\r\n\r\n', 1)[0]
+            if not headers_part:
+                headers_part = cached_response.split('\n\n', 1)[0]
+
+            # Check for expiration headers
+            max_age_match = re.search(r'Cache-Control:.*?max-age=(\d+)', headers_part, re.IGNORECASE)
+            if max_age_match:
+                max_age = int(max_age_match.group(1))
+                file_modified_time = os.path.getmtime(cache_file)
+                if time.time() - file_modified_time > max_age:
+                    return False
+
+            expires_match = re.search(r'Expires:\s*(.*?)[\r\n]', headers_part, re.IGNORECASE)
+            if expires_match:
+                expires_str = expires_match.group(1).strip()
+                try:
+                    # Parse the expiration date
+                    expires_date = datetime.strptime(expires_str, '%a, %d %b %Y %H:%M:%S %Z')
+                    if datetime.now() > expires_date:
+                        return False
+                except ValueError:
+                    # If we can't parse the date, we assume the cache is invalid
+                    return False
+
+            # Check for conditional headers to use in validation
+            etag_match = re.search(r'ETag:\s*(.*?)[\r\n]', headers_part, re.IGNORECASE)
+            last_modified_match = re.search(r'Last-Modified:\s*(.*?)[\r\n]', headers_part, re.IGNORECASE)
+
+            if etag_match or last_modified_match:
+                return True  # We have validators to use for revalidation
+
+            # Default cache lifetime if no explicit expiration
+            file_modified_time = os.path.getmtime(cache_file)
+            default_ttl = 3600  # 1 hour
+            return (time.time() - file_modified_time) < default_ttl
+
+        except Exception as e:
+            print(f"Cache validation error: {e}")
+            return False
+
+    def get_cached_validators(self, cache_file):
+        """Extract validators from cached response for revalidation"""
+        validators = {}
+
+        if not os.path.exists(cache_file):
+            return validators
+
+        try:
+            with open(cache_file, 'r', encoding='utf-8', errors='replace') as f:
+                cached_response = f.read()
+
+            headers_part = cached_response.split('\r\n\r\n', 1)[0]
+            if not headers_part:
+                headers_part = cached_response.split('\n\n', 1)[0]
+
+            etag_match = re.search(r'ETag:\s*(.*?)[\r\n]', headers_part, re.IGNORECASE)
+            if etag_match:
+                validators['If-None-Match'] = etag_match.group(1).strip()
+
+            last_modified_match = re.search(r'Last-Modified:\s*(.*?)[\r\n]', headers_part, re.IGNORECASE)
+            if last_modified_match:
+                validators['If-Modified-Since'] = last_modified_match.group(1).strip()
+
+            return validators
+        except Exception as e:
+            print(f"Error extracting validators: {e}")
+            return validators
+
+    def should_cache_response(self, response_headers):
+        """Determine if a response should be cached based on its headers"""
+        # Don't cache responses with Cache-Control: no-store
+        if re.search(r'Cache-Control:.*?no-store', response_headers, re.IGNORECASE):
+            return False
+
+        # Don't cache private responses
+        if re.search(r'Cache-Control:.*?private', response_headers, re.IGNORECASE):
+            return False
+
+        # Don't cache if explicitly told not to
+        if re.search(r'Cache-Control:.*?no-cache', response_headers, re.IGNORECASE):
+            return False
+
+        # Default to caching GET responses that are successful
+        status_match = re.search(r'HTTP/[\d.]+\s+(\d+)', response_headers)
+        if status_match and status_match.group(1) == '200':
+            return True
+
+        return False
+
     def send_request(self, host, path, method="GET", headers=None, body=None):
         """Send HTTP request"""
         if headers is None:
@@ -52,7 +162,7 @@ class HTTPClient:
         headers.update({
             "Host": host,
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Accept": headers.get("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"),
             "Connection": "close"
         })
 
@@ -91,10 +201,67 @@ class HTTPClient:
         if self.socket:
             self.socket.close()
 
-    def request(self, url, method="GET", headers=None, body=None, follow_redirects=True, max_redirects=5):
-        """Make HTTP request and handle redirects"""
+    def request(self, url, method="GET", headers=None, body=None, follow_redirects=True, max_redirects=5, use_cache=True):
+        """Make HTTP request and handle redirects with caching"""
+        if headers is None:
+            headers = {}
+
         protocol, host, path, port = self.parse_url(url)
 
+        # Set default Accept header if not provided
+        accept_header = headers.get("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+        headers["Accept"] = accept_header
+
+        cache_key = self.get_cache_key(url, accept_header)
+        cache_file = os.path.join(self.cache_dir, cache_key)
+
+        # Check cache for GET requests
+        if method == "GET" and use_cache:
+            if self.is_cached_response_valid(cache_file):
+                print(f"Using cached response for {url}")
+
+                # Get validators for conditional request
+                validators = self.get_cached_validators(cache_file)
+                if validators:
+                    # Add validation headers
+                    headers.update(validators)
+
+                    # Make conditional request
+                    if not self.connect(host, port, use_ssl=(protocol == 'https')):
+                        print("Connection failed, using cached response")
+                        with open(cache_file, 'r', encoding='utf-8', errors='replace') as f:
+                            return f.read()
+
+                    if not self.send_request(host, path, method, headers, body):
+                        self.close()
+                        print("Request failed, using cached response")
+                        with open(cache_file, 'r', encoding='utf-8', errors='replace') as f:
+                            return f.read()
+
+                    response = self.receive_response()
+                    self.close()
+
+                    if response:
+                        status_match = re.search(r'HTTP/[\d.]+\s+(\d+)', response)
+                        if status_match and status_match.group(1) == '304':  # Not Modified
+                            print("Resource not modified, using cached version")
+                            with open(cache_file, 'r', encoding='utf-8', errors='replace') as f:
+                                return f.read()
+                        else:
+                            # Update cache with new response
+                            if self.should_cache_response(response.split('\r\n\r\n', 1)[0]):
+                                try:
+                                    with open(cache_file, 'w', encoding='utf-8') as f:
+                                        f.write(response)
+                                except Exception as e:
+                                    print(f"Warning: Failed to cache response: {e}")
+                            return response
+                else:
+                    # No validators, but cache is still valid
+                    with open(cache_file, 'r', encoding='utf-8', errors='replace') as f:
+                        return f.read()
+
+        # No valid cache, make a new request
         if not self.connect(host, port, use_ssl=(protocol == 'https')):
             return None
 
@@ -108,8 +275,23 @@ class HTTPClient:
         if not response:
             return None
 
-        # Handles redirects
+        # Check HTTP status code
+        status_match = re.search(r'HTTP/[\d.]+\s+(\d+)', response)
+        if status_match:
+            status_code = status_match.group(1)
+            if status_code.startswith('4') or status_code.startswith('5'):
+                print(f"Server returned error status: {status_code}")
+                # Continue processing as response may contain error details
 
+        # Cache the response if appropriate
+        if method == "GET" and use_cache and self.should_cache_response(response.split('\r\n\r\n', 1)[0]):
+            try:
+                with open(cache_file, 'w', encoding='utf-8') as f:
+                    f.write(response)
+            except Exception as e:
+                print(f"Warning: Failed to cache response: {e}")
+
+        # Handle redirects
         if follow_redirects and max_redirects > 0:
             status_match = re.search(r'HTTP/[\d.]+\s+(\d+)', response)
             if status_match and status_match.group(1) in ('301', '302', '303', '307', '308'):
@@ -120,16 +302,23 @@ class HTTPClient:
                         redirect_url = f"{protocol}://{host}{redirect_url}"
 
                     print(f"Redirecting to: {redirect_url}")
-                    return self.request(redirect_url, method, headers, body, follow_redirects, max_redirects - 1)
+                    return self.request(redirect_url, method, headers, body, follow_redirects, max_redirects - 1, use_cache)
         return response
 
 
 def extract_html_content(response):
     """Extract HTML body from response and clean it"""
+    # Check if response is empty
+    if not response:
+        return "Empty response received."
+
     # Split headers and body
     parts = response.split('\r\n\r\n', 1)
     if len(parts) < 2:
-        return "No content found in response."
+        # Try alternative delimiter
+        parts = response.split('\n\n', 1)
+        if len(parts) < 2:
+            return "No content found in response."
 
     body = parts[1]
 
@@ -154,6 +343,8 @@ def extract_search_results(response, search_engine):
         # Debug response to file for troubleshooting
         print("=== DEBUGGING DUCKDUCKGO RESPONSE ===")
         header_part = response.split('\r\n\r\n', 1)[0]
+        if not header_part:
+            header_part = response.split('\n\n', 1)[0]
         print(header_part[:1000])  # Print first 1000 chars of headers
         print("================================")
 
@@ -233,6 +424,7 @@ def extract_search_results(response, search_engine):
 
     return "Unsupported search engine."
 
+
 def fetch_url(url):
     """Fetch content from specified URL"""
     client = HTTPClient()
@@ -270,17 +462,6 @@ def search(term, engine="duckduckgo"):
     return extract_search_results(response, engine)
 
 
-def fetch_url(url):
-    """Fetch content from specified URL"""
-    client = HTTPClient()
-    response = client.request(url)
-
-    if not response:
-        return "Failed to fetch URL."
-
-    return extract_html_content(response)
-
-
 def open_result(result_number, search_results):
     """Open a specific search result"""
     lines = search_results.strip().split('\n\n')
@@ -303,6 +484,8 @@ def create_parser():
     group.add_argument('-u', '--url', help='Make an HTTP request to the specified URL')
     group.add_argument('-s', '--search', help='Search the term using DuckDuckGo and print top 10 results')
     group.add_argument('-o', '--open', type=int, help='Open the specified search result')
+    parser.add_argument('--no-cache', action='store_true', help='Disable HTTP caching for this request')
+    parser.add_argument('--clear-cache', action='store_true', help='Clear all cached responses')
     return parser
 
 
@@ -313,13 +496,24 @@ def main():
     # Store last search results for -o option
     last_search_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.last_search')
 
+    # Handle cache clearing
+    if args.clear_cache:
+        client = HTTPClient()
+        cache_dir = client.cache_dir
+        if os.path.exists(cache_dir):
+            for file in os.listdir(cache_dir):
+                os.remove(os.path.join(cache_dir, file))
+            print(f"Cache cleared: {cache_dir}")
+        else:
+            print("No cache directory found.")
+
     if args.url:
+        use_cache = not args.no_cache
         result = fetch_url(args.url)
         print(result)
     elif args.search:
         result = search(args.search)
         print(result)
-
 
         # Save search results for later access
         with open(last_search_file, 'w', encoding='utf-8') as f:
@@ -333,7 +527,6 @@ def main():
             print(result)
         else:
             print("No previous search results found. Please run a search first using the -s option.")
-
     else:
         parser.print_help()
 
