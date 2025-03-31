@@ -305,7 +305,6 @@ class HTTPClient:
                     print(f"Redirecting to: {redirect_url}")
 
                     return self.request(redirect_url, method, headers, body, follow_redirects, max_redirects - 1, use_cache)
-
         return response
 
 
@@ -444,7 +443,6 @@ def extract_search_results(response, search_engine):
 
 
 def fetch_url(url, content_type=None, use_cache=True):
-
     """Fetch content from specified URL with content negotiation"""
     client = HTTPClient()
 
@@ -540,7 +538,6 @@ def main():
     if args.url:
         use_cache = not args.no_cache
         result = fetch_url(args.url, args.type, use_cache=use_cache)  # Pass use_cache parameter
-
         print(result)
     elif args.search:
         result = search(args.search)
